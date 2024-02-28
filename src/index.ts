@@ -1,148 +1,144 @@
-const os = require("os");
-const vscode = require("vscode");
-const io = require("socket.io-client");
+import os from 'os';
+import vscode from 'vscode';
+import io from 'socket.io-client';
+import logger from 'pino';
+import { IProps } from 'interface';
+import {
+  resetPrompt,
+  escapeNewLine,
+  escapeDoubleQuotes,
+  getVariable,
+  verifyUrl,
+  socketEmitConnected,
+} from 'functions';
+import { DEFAULT_TEXT_DECORATION_CONFIG } from './constants';
+
+const log = logger();
 
 // Get the user's platform (e.g. "win32", "darwin", "linux"
-
 const platform = os.platform();
-let decorationType;
+const terminalName = 'fleece-dalai-terminal';
+
+let decorationType: vscode.TextEditorDecorationType;
 
 // Activate the extension
-function activate(context) {
-  console.log("activated");
+export function activate(context: vscode.ExtensionContext) {
+  log.info('activated');
   // server variables
-  const terminalName = "fleece-dalai-terminal";
-  let existingTerminal;
-  let serverProcessId;
+  const url = verifyUrl(getVariable('url'));
+  let existingTerminal: vscode.Terminal | undefined;
+  let serverProcessId: number | undefined;
 
-  let prompt = "";
-  let promptNewLines = 0;
-  let token = "";
-  let generating = false;
-  let newLinesInARow = 0;
-
-  const resetPrompt = () => {
-    prompt = "";
-    promptNewLines = 0;
-    token = "";
-    generating = false;
-    newLinesInARow = 0;
+  const props: IProps = {
+    prompt: '',
+    promptNewLines: 0,
+    token: '',
+    generating: false,
+    newLinesInARow: 0,
   };
 
-  // Utils to help parse token output
-  const escapeNewLine = (arg) =>
-    platform.toLowerCase() === "win32"
-      ? arg.replaceAll(/\n/g, "\\n").replaceAll(/\r/g, "\\r")
-      : arg;
-  const escapeDoubleQuotes = (arg) =>
-    platform.toLowerCase() === "win32"
-      ? arg.replaceAll(/"/g, '`"')
-      : arg.replaceAll(/"/g, '\\"');
-
-  const sanitizeText = (text) => escapeNewLine(escapeDoubleQuotes(text));
+  const sanitizeText = (text: string) =>
+    escapeNewLine(platform, escapeDoubleQuotes(platform, text));
 
   // Socket setup
-  let socket = io("ws://localhost:3000");
-  const socketEmitConnected = (e, data) => {
-    if (socket.connected) {
-      socket.emit(e, data);
-    }
-  };
+  const socket = io(url);
+  socket.on('connect', () => {
+    log.info('Socket.io Client Connected');
 
-  socket.on("connect", () => {
-    console.log("Socket.io Client Connected");
-
-    socket.on("disconnect", () => {
-      console.log("Socket.io Client Disconnected");
+    socket.on('disconnect', () => {
+      log.info('Socket.io Client Disconnected');
     });
 
-    socket.on("result", async ({ request, response }) => {
-      generating = true;
-      // Filter out common errors that the terminal may spit back
-      if (
-        response.includes(`repeat_penalty = `) ||
-        typeof response !== "string"
-      ) {
-        return;
-      }
-      token += response;
-      token = sanitizeText(token).trim();
-      prompt.trim();
-
-      if (token.length <= prompt.length + promptNewLines) {
-        // +1 for the \n in the end
-        return;
-      } else if (response == "\n\n<end>") {
-        vscode.window.showInformationMessage("Done!");
-      } else if (response == "\\end{code}") {
-        vscode.commands.executeCommand("fleece.stopFleece");
-        vscode.window.showInformationMessage("Done!");
-        return;
-      }
-
-      // avoid having too many new lines in a row
-      const isNewlineResponse = response.trim().length == 0;
-      if (isNewlineResponse) {
-        newLinesInARow++;
-        if (newLinesInARow > 1) {
+    socket.on(
+      'result',
+      async ({ request, response }: { request: any; response: any }) => {
+        props.generating = true;
+        // Filter out common errors that the terminal may spit back
+        if (
+          response.includes(`repeat_penalty = `) ||
+          typeof response !== 'string'
+        ) {
           return;
         }
-      } else {
-        newLinesInARow = 0;
-      }
+        props.token += response;
+        props.token = sanitizeText(props.token).trim();
+        props.prompt.trim();
 
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) return;
+        if (props.token.length <= props.prompt.length + props.promptNewLines) {
+          // +1 for the \n in the end
+          return;
+        } else if (response == '\n\n<end>') {
+          vscode.window.showInformationMessage('Done!');
+        } else if (response == '\\end{code}') {
+          vscode.commands.executeCommand('fleece.stopFleece');
+          vscode.window.showInformationMessage('Done!');
+          return;
+        }
 
-      const position = editor.selection.active;
+        // avoid having too many new lines in a row
+        const isNewlineResponse = response.trim().length == 0;
+        if (isNewlineResponse) {
+          props.newLinesInARow++;
+          if (props.newLinesInARow > 1) {
+            return;
+          }
+        } else {
+          props.newLinesInARow = 0;
+        }
 
-      // delete \end{code} if existing
-      if (token.includes("\\end{code}")) {
-        const rangeToDelete = new vscode.Range(
-          position.line,
-          Math.max(0, position.character - 9),
-          position.line,
-          position.character
-        );
-        editor.edit((editBuilder) => editBuilder.delete(rangeToDelete));
-        vscode.commands.executeCommand("fleece.stopFleece");
-        vscode.window.showInformationMessage("Done!");
-        return;
-      }
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return;
 
-      // Otherwise, print the response at the cursor position
-      editor.edit((editBuilder) => editBuilder.insert(position, response));
-    });
+        const position = editor.selection.active;
+
+        // delete \end{code} if existing
+        if (props.token.includes('\\end{code}')) {
+          const rangeToDelete = new vscode.Range(
+            position.line,
+            Math.max(0, position.character - 9),
+            position.line,
+            position.character,
+          );
+          editor.edit((editBuilder) => editBuilder.delete(rangeToDelete));
+          vscode.commands.executeCommand('fleece.stopFleece');
+          vscode.window.showInformationMessage('Done!');
+          return;
+        }
+
+        // Otherwise, print the response at the cursor position
+        editor.edit((editBuilder) => editBuilder.insert(position, response));
+      },
+    );
 
     // Handle socket.io error events
-    socket.on("connect_error", (error) => {
-      console.error("Socket.io Connect Error: " + error.toString());
-      if (error.toString() === "Error: xhr poll error") {
+    socket.on('connect_error', (error) => {
+      console.error('Socket.io Connect Error: ' + error.toString());
+      if (error.toString() === 'Error: xhr poll error') {
         vscode.window
           .showErrorMessage("Can't reach Dalai server. Restart local server?", {
-            title: "Restart",
-            action: "restartServer",
+            title: 'Restart',
+            action: 'restartServer',
           })
           .then((selection) => {
-            if (selection?.action === "restartServer") {
-              vscode.commands.executeCommand("fleece.startDalai");
+            if (selection?.action === 'restartServer') {
+              vscode.commands.executeCommand('fleece.startDalai');
             }
           });
       } else {
         vscode.window.showErrorMessage(
-          "Socket.io Connect Error: " + error.toString()
+          'Socket.io Connect Error: ' + error.toString(),
         );
       }
     });
 
-    socket.on("error", (error) => {
-      console.error("Socket.io Error: " + error.toString());
-      vscode.window.showErrorMessage("Socket.io Error: " + error.toString());
+    socket.on('error', (error) => {
+      console.error('Socket.io Error: ' + error.toString());
+      vscode.window.showErrorMessage('Socket.io Error: ' + error.toString());
     });
   });
 
   // UTILS
-  const commentToCodePrompt = (input) => {
+  const commentToCodePrompt = (input: string) => {
     const editor = vscode.window.activeTextEditor;
     // const fileName = editor.document.fileName;
     // const relativePath = vscode.workspace.asRelativePath(fileName);
@@ -187,12 +183,12 @@ function activate(context) {
       position.line - 1 >= 0 ? document.lineAt(position.line - 1) : undefined;
     const previousLine2 =
       position.line - 2 >= 0 ? document.lineAt(position.line - 2) : undefined;
-    console.log([previousLine2, previousLine1, currentLine]);
+    log.info([previousLine2, previousLine1, currentLine]);
     const lines = [previousLine2, previousLine1, currentLine].flatMap(
-      (l) => !!l && l.text
+      (l) => !!l && l.text,
     );
 
-    return lines.join("\n");
+    return lines.join('\n');
   }
 
   const goToNextLine = () => {
@@ -202,13 +198,13 @@ function activate(context) {
     const line = selection.isEmpty
       ? selection.active.line + 1 // No selection, go to next line
       : selection.end.line + 1; // Selection, go to line after selection
-    vscode.commands.executeCommand("editor.action.insertLineAfter");
+    vscode.commands.executeCommand('editor.action.insertLineAfter');
     editor.selection = new vscode.Selection(line, 0, line, 0);
   };
 
   const submitDalaiRequest = (prompt, config) => {
-    if (generating) {
-      vscode.window.showErrorMessage("Fleece is already generating!");
+    if (props.generating) {
+      vscode.window.showErrorMessage('Fleece is already generating!');
       return false;
     }
     const defaultConfig = {
@@ -224,36 +220,36 @@ function activate(context) {
       temp: 0.5,
 
       // these below 2 need to be adjusted for machine by machine basis
-      model: "alpaca.7B",
+      model: 'alpaca.7B',
       threads: 4,
     };
-    prompt = sanitizeText(prompt);
-    promptNewLines = (prompt.match(/\n/g) || []).length;
-    socketEmitConnected("request", {
+    props.prompt = sanitizeText(prompt);
+    props.promptNewLines = (props.prompt.match(/\n/g) || []).length;
+    socketEmitConnected(socket, 'request', {
       ...defaultConfig,
       ...config,
       prompt,
     });
-    generating = true;
+    props.generating = true;
     return true;
   };
 
   const showThinkingMessage = () => {
     vscode.window
-      .showInformationMessage("Fleece is thinking...", {
-        title: "Stop autocomplete",
-        action: "stopAutocomplete",
+      .showInformationMessage('Fleece is thinking...', {
+        title: 'Stop autocomplete',
+        action: 'stopAutocomplete',
       })
       .then((selection) => {
-        if (selection?.action === "stopAutocomplete") {
-          vscode.commands.executeCommand("fleece.stopFleece");
+        if (selection?.action === 'stopAutocomplete') {
+          vscode.commands.executeCommand('fleece.stopFleece');
         }
       });
   };
 
   const setMaybeExistingTerminal = () => {
     existingTerminal = vscode.window.terminals.find(
-      (t) => t.name === terminalName
+      (t) => t.name === terminalName,
     );
 
     if (existingTerminal) {
@@ -267,12 +263,12 @@ function activate(context) {
     } else {
       vscode.window
         .showErrorMessage("Can't reach Dalai server. Restart local server?", {
-          title: "Restart",
-          action: "restartServer",
+          title: 'Restart',
+          action: 'restartServer',
         })
         .then((selection) => {
-          if (selection?.action === "restartServer") {
-            vscode.commands.executeCommand("fleece.startDalai");
+          if (selection?.action === 'restartServer') {
+            vscode.commands.executeCommand('fleece.startDalai');
           }
         });
       return false;
@@ -281,14 +277,14 @@ function activate(context) {
 
   // COMMANDS
   // START SERVER
-  let disposibleStartServer = vscode.commands.registerCommand(
-    "fleece.startDalai",
+  const disposibleStartServer = vscode.commands.registerCommand(
+    'fleece.startDalai',
     () => {
-      socket = io("ws://localhost:3000", { forceNew: true });
+      socket = io('ws://localhost:3000', { forceNew: true });
       const startServerCommand = `npx dalai serve`;
-      const stopServerCommand = "\x03"; // Send Ctrl+C to stop server
+      const stopServerCommand = '\x03'; // Send Ctrl+C to stop server
       setMaybeExistingTerminal();
-      resetPrompt();
+      resetPrompt(props);
 
       if (existingTerminal) {
         existingTerminal.sendText(stopServerCommand);
@@ -310,11 +306,11 @@ function activate(context) {
                 // Handle error
                 if (closedTerminal.exitStatus?.code !== 0) {
                   vscode.window.showErrorMessage(
-                    `Dalai server crashed unexpectedly (Code: ${code})`
+                    `Dalai server crashed unexpectedly (Code: ${code})`,
                   );
                 } else {
                   vscode.window.showInformationMessage(
-                    `Dalai server closed successfully`
+                    `Dalai server closed successfully`,
                   );
                 }
               }
@@ -323,23 +319,23 @@ function activate(context) {
         });
       }
       existingTerminal.show();
-    }
+    },
   );
 
   // STOP COMMAND
-  let disposableStop = vscode.commands.registerCommand(
-    "fleece.stopFleece",
+  const disposableStop = vscode.commands.registerCommand(
+    'fleece.stopFleece',
     function () {
-      if (generating) {
-        socketEmitConnected("request", { prompt: "/stop" });
-        resetPrompt();
+      if (props.generating) {
+        socketEmitConnected(socket, 'request', { prompt: '/stop' });
+        resetPrompt(props);
       }
-    }
+    },
   );
 
   // COMMENT TO CODE COMMAND
-  let disposable = vscode.commands.registerCommand(
-    "fleece.commentToCode",
+  const disposable = vscode.commands.registerCommand(
+    'fleece.commentToCode',
     function () {
       const exists = setMaybeExistingTerminal();
       if (!exists || !serverProcessId) {
@@ -351,12 +347,12 @@ function activate(context) {
         goToNextLine();
         showThinkingMessage();
       }
-    }
+    },
   );
 
   // AUTOCOMPLETE COMMAND
-  let disposableAutocomplete = vscode.commands.registerCommand(
-    "fleece.autocomplete",
+  const disposableAutocomplete = vscode.commands.registerCommand(
+    'fleece.autocomplete',
     function () {
       const exists = setMaybeExistingTerminal();
       if (!exists || !serverProcessId) {
@@ -365,21 +361,14 @@ function activate(context) {
       prompt = autocompletePrompt(getTextFromCurrentAndPreviousTwoLines());
       submitDalaiRequest(prompt);
       showThinkingMessage();
-    }
+    },
   );
-
-  // DECORATIONS
-  const defaultTextDecorationConfig = {
-    color: `rgba(255, 255, 255, 0.35)`,
-    margin: "0 0 0 1rem",
-  };
-
   // Decoration for generating text from code
   decorationType = vscode.window.createTextEditorDecorationType({
     after: {
-      ...defaultTextDecorationConfig,
+      ...DEFAULT_TEXT_DECORATION_CONFIG,
       contentText: `Code from Comment (${
-        process.platform === "darwin" ? "⌘⌥" : "Ctrl+Alt+"
+        process.platform === 'darwin' ? '⌘⌥' : 'Ctrl+Alt+'
       }C)`,
     },
   });
@@ -416,11 +405,11 @@ function activate(context) {
     if (showingDecoration) return;
     const range = new vscode.Range(
       new vscode.Position(line.lineNumber, 0),
-      new vscode.Position(line.lineNumber, line.text.length)
+      new vscode.Position(line.lineNumber, line.text.length),
     );
 
     editor.setDecorations(decorationType, [
-      { range, hoverMessage: "Autogenerate code" },
+      { range, hoverMessage: 'Autogenerate code' },
     ]);
     showingDecoration = true;
   }
