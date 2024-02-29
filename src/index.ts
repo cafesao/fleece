@@ -11,7 +11,10 @@ import {
   verifyUrl,
   socketEmitConnected,
 } from 'functions';
-import { DEFAULT_TEXT_DECORATION_CONFIG } from './constants';
+import {
+  DEFAULT_TEXT_DECORATION_CONFIG,
+  DEFAULT_CONFIG_SET_ALPACA,
+} from './constants';
 
 const log = logger();
 
@@ -41,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
     escapeNewLine(platform, escapeDoubleQuotes(platform, text));
 
   // Socket setup
-  const socket = io(url);
+  let socket = io(url);
   socket.on('connect', () => {
     log.info('Socket.io Client Connected');
 
@@ -51,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     socket.on(
       'result',
-      async ({ request, response }: { request: any; response: any }) => {
+      async ({ response }: { request: any; response: any }) => {
         props.generating = true;
         // Filter out common errors that the terminal may spit back
         if (
@@ -202,31 +205,15 @@ export function activate(context: vscode.ExtensionContext) {
     editor.selection = new vscode.Selection(line, 0, line, 0);
   };
 
-  const submitDalaiRequest = (prompt, config) => {
+  const submitDalaiRequest = (prompt, config?) => {
     if (props.generating) {
       vscode.window.showErrorMessage('Fleece is already generating!');
       return false;
     }
-    const defaultConfig = {
-      // n_predict: 96,
-      n_predict: 50,
-      // top_k: 40,
-      top_k: 20,
-      top_p: 0.9,
-      // repeat_last_n: 2,
-      repeat_last_n: 5,
-      repeat_penalty: 1.5,
-      // temp: 0.3,
-      temp: 0.5,
-
-      // these below 2 need to be adjusted for machine by machine basis
-      model: 'alpaca.7B',
-      threads: 4,
-    };
     props.prompt = sanitizeText(prompt);
     props.promptNewLines = (props.prompt.match(/\n/g) || []).length;
     socketEmitConnected(socket, 'request', {
-      ...defaultConfig,
+      ...DEFAULT_CONFIG_SET_ALPACA,
       ...config,
       prompt,
     });
@@ -306,7 +293,7 @@ export function activate(context: vscode.ExtensionContext) {
                 // Handle error
                 if (closedTerminal.exitStatus?.code !== 0) {
                   vscode.window.showErrorMessage(
-                    `Dalai server crashed unexpectedly (Code: ${code})`,
+                    `Dalai server crashed unexpectedly (Code: ${closedTerminal.exitStatus?.code})`,
                   );
                 } else {
                   vscode.window.showInformationMessage(
@@ -341,8 +328,8 @@ export function activate(context: vscode.ExtensionContext) {
       if (!exists || !serverProcessId) {
         return;
       }
-      prompt = commentToCodePrompt(getEditorLineOrSelection());
-      const success = submitDalaiRequest(prompt);
+      props.prompt = commentToCodePrompt(getEditorLineOrSelection());
+      const success = submitDalaiRequest(props.prompt);
       if (success) {
         goToNextLine();
         showThinkingMessage();
@@ -358,8 +345,10 @@ export function activate(context: vscode.ExtensionContext) {
       if (!exists || !serverProcessId) {
         return;
       }
-      prompt = autocompletePrompt(getTextFromCurrentAndPreviousTwoLines());
-      submitDalaiRequest(prompt);
+      props.prompt = autocompletePrompt(
+        getTextFromCurrentAndPreviousTwoLines(),
+      );
+      submitDalaiRequest(props.prompt);
       showThinkingMessage();
     },
   );
