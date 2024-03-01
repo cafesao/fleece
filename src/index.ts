@@ -1,8 +1,10 @@
-import os from 'os';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const os = require('os');
 import vscode from 'vscode';
 import io from 'socket.io-client';
 import logger from 'pino';
-import { IProps } from 'interface';
+
+import { IProps } from './interface';
 import {
   resetPrompt,
   escapeNewLine,
@@ -10,7 +12,7 @@ import {
   getVariable,
   verifyUrl,
   socketEmitConnected,
-} from 'functions';
+} from './functions';
 import {
   DEFAULT_TEXT_DECORATION_CONFIG,
   DEFAULT_CONFIG_SET_ALPACA,
@@ -267,7 +269,7 @@ export function activate(context: vscode.ExtensionContext) {
   const disposibleStartServer = vscode.commands.registerCommand(
     'fleece.startDalai',
     () => {
-      socket = io('ws://localhost:3000', { forceNew: true });
+      socket = io(url, { forceNew: true });
       const startServerCommand = `npx dalai serve`;
       const stopServerCommand = '\x03'; // Send Ctrl+C to stop server
       setMaybeExistingTerminal();

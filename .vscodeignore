@@ -1,7 +1,6 @@
 .DS_Store
 npm-debug.log
 Thumbs.db
-out/
 .vs/
 tsconfig.lsif.json
 *.lsif
