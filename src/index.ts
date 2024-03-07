@@ -16,6 +16,7 @@ import {
 import {
   DEFAULT_TEXT_DECORATION_CONFIG,
   DEFAULT_CONFIG_SET_ALPACA,
+  DEFAULT_URL,
 } from './constants';
 
 const log = logger();
@@ -30,7 +31,7 @@ let decorationType: vscode.TextEditorDecorationType;
 export function activate(context: vscode.ExtensionContext) {
   log.info('activated');
   // server variables
-  const url = verifyUrl(getVariable('url'));
+  const url = verifyUrl(getVariable('url') || DEFAULT_URL);
   let existingTerminal: vscode.Terminal | undefined;
   let serverProcessId: number | undefined;
 

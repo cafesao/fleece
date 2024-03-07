@@ -18,11 +18,17 @@ _The above demo showcases the comment-to-code feature of Fleece in real-time on 
 npm install dalai -g
 ```
 
-
 2. Follow the steps [here](https://github.com/cocktailpeanut/dalai#just-run-this) to install the models via dalai's readme.
 
 3. Install the Fleece extension from the [VSCode extension marketplace](https://marketplace.visualstudio.com/items?itemName=kelden.fleece) or by building it from this repo or downloading the latest `.vsix` [release](https://github.com/keldenl/fleece/releases) in this repo.
 
+4. Add variables
+- Ctrl + Shift + P --> Preferences: Open User Settings (JSON)
+    - Add "fleece.url": "ws://localhost:3000"
+        - Modify  localhost:3000 to point to the llama server
+    - Add "fleece.model": "llama.7B"
+        - Modify  llama.7B to the model you want.
+]
 ## Usage
 
 Fleece currently has one feature: comment-to-code. An indicator for the hotkeys to trigger comment-to-code will show up automatically on comments. Simply press `command+option+c` on Mac to trigger the process. This will automatically start a Dalai server and send the comment as a request.

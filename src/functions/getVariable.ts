@@ -14,5 +14,5 @@ export function getVariable(name: string) {
 
     return fleeceSettings[name];
   }
-  return false;
+  return undefined;
 }
