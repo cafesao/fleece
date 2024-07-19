@@ -63,7 +63,7 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run esbuild-base -- --minify",
+        "vscode:prepublish": "npm run esbuild-base -- ",
         "esbuild-base": "esbuild ./src/index.ts --bundle --outfile=dist/index.js --external:vscode --format=cjs --platform=node",
         "esbuild": "npm run esbuild-base -- --sourcemap",
         "watch": "tsc -watch -p ./",
